@@ -1,14 +1,11 @@
 import type { Metadata } from 'next'
-import { Inter, Plus_Jakarta_Sans } from 'next/font/google'
 import './globals.css'
 import { ThemeProvider } from '@/components/providers/theme-provider'
-import { Toaster } from '@/components/ui/toaster'
+import { Toaster } from '@/components/ui/toast'
 import { Navbar } from '@/components/layout/navbar'
 import { MobileNav } from '@/components/layout/mobile-nav'
 import { CartDrawer } from '@/components/layout/cart-drawer'
-
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
-const jakarta = Plus_Jakarta_Sans({ subsets: ['latin'], variable: '--font-jakarta' })
+import { Footer } from '@/components/layout/footer'
 
 export const metadata: Metadata = {
   title: {
@@ -60,7 +57,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${jakarta.variable} font-sans`}>
+      <body className="font-sans">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -71,6 +68,7 @@ export default function RootLayout({
           <main className="min-h-screen pt-16 pb-20 md:pb-0">
             {children}
           </main>
+          <Footer />
           <MobileNav />
           <CartDrawer />
           <Toaster />

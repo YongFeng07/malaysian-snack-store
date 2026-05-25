@@ -14,6 +14,15 @@ CREATE TABLE public.profiles (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Public users table alias required by business reporting tools
+CREATE TABLE public.users (
+    id UUID REFERENCES auth.users(id) PRIMARY KEY,
+    profile_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    email TEXT UNIQUE NOT NULL,
+    role TEXT DEFAULT 'customer' CHECK (role IN ('customer', 'admin', 'staff')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Categories table
 CREATE TABLE public.categories (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
@@ -170,10 +179,16 @@ CREATE INDEX idx_reviews_product_id ON reviews(product_id);
 
 -- Row Level Security (RLS) Policies
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.product_images ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.carts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cart_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
 
 -- Profiles policies
@@ -185,9 +200,21 @@ CREATE POLICY "Users can update their own profile"
     ON public.profiles FOR UPDATE
     USING (auth.uid() = id);
 
+CREATE POLICY "Users can view their own user row"
+    ON public.users FOR SELECT
+    USING (auth.uid() = id);
+
 -- Products policies (public read)
 CREATE POLICY "Anyone can view products"
     ON public.products FOR SELECT
+    USING (true);
+
+CREATE POLICY "Anyone can view categories"
+    ON public.categories FOR SELECT
+    USING (is_active = true);
+
+CREATE POLICY "Anyone can view product images"
+    ON public.product_images FOR SELECT
     USING (true);
 
 -- Admin policies
@@ -206,6 +233,30 @@ CREATE POLICY "Users can view their own orders"
     ON public.orders FOR SELECT
     USING (auth.uid() = user_id);
 
+CREATE POLICY "Users can create their own orders"
+    ON public.orders FOR INSERT
+    WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
+
+CREATE POLICY "Users can view their own order items"
+    ON public.order_items FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.orders
+            WHERE orders.id = order_items.order_id
+            AND (orders.user_id = auth.uid() OR orders.user_id IS NULL)
+        )
+    );
+
+CREATE POLICY "Users can create order items for own orders"
+    ON public.order_items FOR INSERT
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.orders
+            WHERE orders.id = order_items.order_id
+            AND (orders.user_id = auth.uid() OR orders.user_id IS NULL)
+        )
+    );
+
 CREATE POLICY "Admins can view all orders"
     ON public.orders FOR ALL
     USING (
@@ -220,6 +271,20 @@ CREATE POLICY "Admins can view all orders"
 CREATE POLICY "Users can manage their own cart"
     ON public.carts FOR ALL
     USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can manage their own cart items"
+    ON public.cart_items FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.carts
+            WHERE carts.id = cart_items.cart_id
+            AND carts.user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Anyone can view active coupons"
+    ON public.coupons FOR SELECT
+    USING (is_active = true);
 
 -- Functions
 CREATE OR REPLACE FUNCTION update_updated_at_column()

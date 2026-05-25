@@ -8,6 +8,8 @@ import { Newsletter } from '@/components/home/newsletter'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Product } from '@/types/product.types'
+import { isSupabaseConfigured } from '@/lib/config/env'
+import { mockProducts } from '@/lib/mock-data'
 
 export default function HomePage() {
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([])
@@ -15,6 +17,12 @@ export default function HomePage() {
 
   useEffect(() => {
     const fetchFeaturedProducts = async () => {
+      if (!isSupabaseConfigured()) {
+        setFeaturedProducts(mockProducts.filter((product) => product.is_featured))
+        setLoading(false)
+        return
+      }
+
       const supabase = createClient()
       const { data } = await supabase
         .from('products')
@@ -27,13 +35,14 @@ export default function HomePage() {
         .eq('is_available', true)
         .limit(8)
 
-      if (data) {
-        setFeaturedProducts(data)
-      }
+      setFeaturedProducts(((data as Product[])?.length ? (data as Product[]) : mockProducts).filter((product) => product.is_featured))
       setLoading(false)
     }
 
-    fetchFeaturedProducts()
+    fetchFeaturedProducts().catch(() => {
+      setFeaturedProducts(mockProducts.filter((product) => product.is_featured))
+      setLoading(false)
+    })
   }, [])
 
   return (
