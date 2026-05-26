@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
-import { notFound, useParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -11,17 +11,72 @@ import { ProductQuantity } from '@/components/products/product-quantity'
 import { mockProducts } from '@/lib/mock-data'
 import { formatPrice } from '@/lib/utils/format-price'
 import { useCartStore } from '@/store/cart-store'
+import { Product } from '@/types/product.types'
+import { createClient } from '@/lib/supabase/client'
+import { isSupabaseConfigured } from '@/lib/config/env'
+import { LoadingSpinner } from '@/components/shared/loading-spinner'
+import { EmptyState } from '@/components/shared/empty-state'
 
 export default function ProductDetailPage() {
   const params = useParams<{ id: string }>()
-  const product = useMemo(() => mockProducts.find((item) => item.slug === params.id || item.id === params.id), [params.id])
+  const [product, setProduct] = useState<Product | null>(null)
+  const [loading, setLoading] = useState(true)
   const [quantity, setQuantity] = useState(1)
   const addItem = useCartStore((state) => state.addItem)
 
-  if (!product) return notFound()
+  useEffect(() => {
+    let mounted = true
+
+    async function loadProduct() {
+      setLoading(true)
+      const fallback = mockProducts.find((item) => item.slug === params.id || item.id === params.id) ?? null
+
+      if (!isSupabaseConfigured()) {
+        if (mounted) {
+          setProduct(fallback)
+          setLoading(false)
+        }
+        return
+      }
+
+      try {
+        const { data, error } = await createClient()
+          .from('products')
+          .select('*, categories (*), product_images (*)')
+          .or(`slug.eq.${params.id},id.eq.${params.id}`)
+          .single()
+
+        if (error) throw error
+        if (mounted) setProduct((data as Product) ?? fallback)
+      } catch {
+        if (mounted) setProduct(fallback)
+      } finally {
+        if (mounted) setLoading(false)
+      }
+    }
+
+    void loadProduct()
+    return () => {
+      mounted = false
+    }
+  }, [params.id])
+
+  const related = useMemo(() => {
+    if (!product) return []
+    return mockProducts.filter((item) => item.category_id === product.category_id && item.id !== product.id).slice(0, 4)
+  }, [product])
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <LoadingSpinner className="h-8 w-8" />
+      </div>
+    )
+  }
+
+  if (!product) return <EmptyState title="Product not found" description="This snack is not available right now." actionHref="/products" actionLabel="Back to catalog" />
 
   const image = product.product_images?.[0]?.image_url ?? ''
-  const related = mockProducts.filter((item) => item.category_id === product.category_id && item.id !== product.id).slice(0, 4)
 
   return (
     <div className="container py-10">

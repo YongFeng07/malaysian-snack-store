@@ -200,9 +200,17 @@ CREATE POLICY "Users can update their own profile"
     ON public.profiles FOR UPDATE
     USING (auth.uid() = id);
 
+CREATE POLICY "Users can create their own profile"
+    ON public.profiles FOR INSERT
+    WITH CHECK (auth.uid() = id);
+
 CREATE POLICY "Users can view their own user row"
     ON public.users FOR SELECT
     USING (auth.uid() = id);
+
+CREATE POLICY "Users can create their own user row"
+    ON public.users FOR INSERT
+    WITH CHECK (auth.uid() = id);
 
 -- Products policies (public read)
 CREATE POLICY "Anyone can view products"
@@ -216,6 +224,26 @@ CREATE POLICY "Anyone can view categories"
 CREATE POLICY "Anyone can view product images"
     ON public.product_images FOR SELECT
     USING (true);
+
+CREATE POLICY "Admins have full access to categories"
+    ON public.categories FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE profiles.id = auth.uid()
+            AND profiles.role = 'admin'
+        )
+    );
+
+CREATE POLICY "Admins have full access to product images"
+    ON public.product_images FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE profiles.id = auth.uid()
+            AND profiles.role = 'admin'
+        )
+    );
 
 -- Admin policies
 CREATE POLICY "Admins have full access to products"
@@ -286,6 +314,16 @@ CREATE POLICY "Anyone can view active coupons"
     ON public.coupons FOR SELECT
     USING (is_active = true);
 
+CREATE POLICY "Admins have full access to coupons"
+    ON public.coupons FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE profiles.id = auth.uid()
+            AND profiles.role = 'admin'
+        )
+    );
+
 -- Functions
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -304,6 +342,35 @@ CREATE TRIGGER update_products_updated_at
     BEFORE UPDATE ON public.products
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+
+-- Create a public profile automatically when a Supabase auth user signs up
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.profiles (id, email, full_name, phone_number)
+    VALUES (
+        NEW.id,
+        NEW.email,
+        COALESCE(NEW.raw_user_meta_data->>'full_name', ''),
+        COALESCE(NEW.raw_user_meta_data->>'phone_number', '')
+    )
+    ON CONFLICT (id) DO UPDATE SET
+        email = EXCLUDED.email,
+        full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), public.profiles.full_name),
+        phone_number = COALESCE(NULLIF(EXCLUDED.phone_number, ''), public.profiles.phone_number);
+
+    INSERT INTO public.users (id, profile_id, email, role)
+    VALUES (NEW.id, NEW.id, NEW.email, 'customer')
+    ON CONFLICT (id) DO NOTHING;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW
+    EXECUTE FUNCTION public.handle_new_user();
 
 -- Function to update product average rating
 CREATE OR REPLACE FUNCTION update_product_rating()
