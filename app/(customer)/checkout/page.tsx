@@ -6,7 +6,6 @@ import { CheckoutForm } from '@/components/checkout/checkout-form'
 import { OrderSummary } from '@/components/checkout/order-summary'
 import { motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import toast from 'react-hot-toast'
 import { CheckoutInput } from '@/lib/validations/order'
 import { generateWhatsAppMessage } from '@/lib/utils/generate-whatsapp-message'
@@ -53,51 +52,21 @@ export default function CheckoutPage() {
         return
       }
 
-      const supabase = createClient()
-      
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      // Create order
-      const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`
-      
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          order_number: orderNumber,
-          user_id: user?.id,
-          customer_name: formData.customerName,
-          customer_email: formData.customerEmail || `${formData.customerPhone}@rasa.local`,
-          customer_phone: formData.customerPhone,
-          delivery_address: formData.deliveryAddress,
-          delivery_notes: formData.deliveryNotes,
-          subtotal: subtotal,
-          delivery_fee: deliveryFee,
-          tax_amount: tax,
-          total_amount: total,
-          status: 'pending',
-          payment_method: formData.paymentMethod === 'whatsapp' ? 'cash' : formData.paymentMethod
-        })
-        .select()
-        .single()
-      
-      if (orderError) throw orderError
-      
-      // Create order items
-      const orderItems = items.map(item => ({
-        order_id: order.id,
-        product_id: item.id,
-        product_name: item.name,
-        product_price: item.price,
-        quantity: item.quantity,
-        total_price: item.price * item.quantity
-      }))
-      
-      const { error: itemsError } = await supabase
-        .from('order_items')
-        .insert(orderItems)
-      
-      if (itemsError) throw itemsError
+      const response = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formData,
+          items,
+        }),
+      })
+      const result = await response.json()
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Unable to create order')
+      }
+
+      const order = result.data.order
       
       // Clear cart
       clearCart()
@@ -141,8 +110,9 @@ export default function CheckoutPage() {
       }
       
     } catch (error) {
-      console.error('Checkout error:', error)
-      toast.error('Failed to process order. Please try again.')
+      const message = error instanceof Error ? error.message : 'Failed to process order. Please try again.'
+      console.error('Checkout error:', message, error)
+      toast.error(message)
     } finally {
       setIsProcessing(false)
     }
